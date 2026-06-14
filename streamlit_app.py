@@ -54,9 +54,7 @@ with tab1:
         # Parse segments to get count for slider
         segments = []
         if script_content:
-            # Handle format conversion if needed
             if "[00:" in script_content and "-->" not in script_content:
-                # If we haven't converted yet, we can't count accurately, but we can try simple parse
                 srt_temp = engine._simple_text_to_srt(script_content)
                 segments = engine.parse_srt(srt_temp)
             else:
@@ -76,20 +74,20 @@ with tab1:
 
         if not is_disabled:
             st.write(f"✅ Found **{len(segments)}** segments.")
-            seg_per_chunk = max(1, len(segments) // num_chunks)
-            st.info(f"Splitting into **{num_chunks}** chunks (~{seg_per_chunk} segments each).")
-
+            
             if st.button("🚀 Start Professional Dubbing", use_container_width=True):
                 with st.spinner("Processing..."):
                     # Final check for conversion
+                    final_srt = script_content
                     if "[00:" in script_content and "-->" not in script_content:
                         loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(loop)
                         final_srt = loop.run_until_complete(engine.text_to_srt_with_ai(script_content))
-                        segments = engine.parse_srt(final_srt)
                     
-# Step 3: Chunking
-                            chunks = engine.chunk_segments_by_count(segments, num_chunks)
+                    segments = engine.parse_srt(final_srt)
+                    
+                    # Step 3: Chunking (Sentence-Aware)
+                    chunks = engine.chunk_segments_by_count(segments, num_chunks)
                     
                     # Step 4: Process Workflow
                     with tempfile.TemporaryDirectory() as tmp_dir:
