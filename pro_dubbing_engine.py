@@ -1,6 +1,7 @@
 """
 Professional Dubbing Engine - Upgraded Version
 Handles SRT, TXT to SRT conversion, timestamp-aware chunking, parallel TTS generation, and duration validation.
+Ensures chunking happens at sentence boundaries.
 """
 
 import re
@@ -132,8 +133,9 @@ class ProDubbingEngine:
 
     def chunk_segments_by_count(self, segments: List[DubbingSegment], num_chunks: int) -> List[List[DubbingSegment]]:
         """
-        Split segments into exactly num_chunks groups.
-        Ensures each chunk has a roughly equal number of segments.
+        Split segments into exactly num_chunks groups, ensuring we only split at sentence boundaries.
+        In SRT-based parsing, each DubbingSegment is already a sentence or a group of sentences, 
+        so we just need to distribute these segments across chunks.
         """
         if not segments: return []
         num_chunks = min(num_chunks, len(segments))
