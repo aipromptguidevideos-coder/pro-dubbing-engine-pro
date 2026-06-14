@@ -10,10 +10,20 @@ st.set_page_config(page_title="Pro Dubbing Engine Upgrade", page_icon="🎙️",
 st.title("🎙️ Pro Dubbing Engine - Advanced Upgrade")
 st.markdown("---")
 
+# Try to get API key from secrets first
+secret_api_key = st.secrets.get("GEMINI_API_KEY", "")
+
 # Sidebar for settings
 with st.sidebar:
     st.header("⚙️ Settings")
-    api_key = st.text_input("Gemini API Key (Optional)", type="password")
+    
+    # If secret exists, use it, otherwise show input
+    if secret_api_key:
+        st.success("✅ API Key loaded from Secrets")
+        api_key = secret_api_key
+    else:
+        api_key = st.text_input("Gemini API Key (Optional)", type="password", help="Add GEMINI_API_KEY to Streamlit Secrets for permanent access")
+    
     output_lang = st.selectbox("Output Language", ["my", "en", "ja", "ko", "th", "vi"], index=0)
     chunk_size = st.slider("Chunk Size (segments per chunk)", 1, 50, 10)
     st.info("Upgrade: Now supports SRT and TXT file uploads!")
