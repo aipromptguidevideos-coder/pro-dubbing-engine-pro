@@ -17,7 +17,6 @@ secret_api_key = st.secrets.get("GEMINI_API_KEY", "")
 with st.sidebar:
     st.header("⚙️ Settings")
     
-    # If secret exists, use it, otherwise show input
     if secret_api_key:
         st.success("✅ API Key loaded from Secrets")
         api_key = secret_api_key
@@ -25,7 +24,6 @@ with st.sidebar:
         api_key = st.text_input("Gemini API Key (Optional)", type="password", help="Add GEMINI_API_KEY to Streamlit Secrets for permanent access")
     
     output_lang = st.selectbox("Output Language", ["my", "en", "ja", "ko", "th", "vi"], index=0)
-    chunk_size = st.slider("Chunk Size (segments per chunk)", 1, 50, 10)
     st.info("Upgrade: Now supports SRT and TXT file uploads!")
 
 # Initialize engine
@@ -52,39 +50,50 @@ with tab1:
 
     with col2:
         st.subheader("2. Process & Dub")
-        if st.button("🚀 Start Professional Dubbing", use_container_width=True):
-            if not script_content:
-                st.warning("Please provide some script content first.")
-            else:
-                with st.spinner("Processing..."):
-                    # Step 1: Handle TXT to SRT if needed
-                    if "[00:" in script_content and "-->" not in script_content:
-                        st.info("Converting custom text format to SRT...")
+        
+        if script_content:
+            # Handle format conversion first to count segments
+            if "[00:" in script_content and "-->" not in script_content:
+                if st.button("🪄 Convert Text to SRT (Required for chunking)"):
+                    with st.spinner("Converting..."):
                         loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(loop)
-                        srt_content = loop.run_until_complete(engine.text_to_srt_with_ai(script_content))
-                    else:
-                        srt_content = script_content
+                        st.session_state.srt_content = loop.run_until_complete(engine.text_to_srt_with_ai(script_content))
+                        st.success("Converted to SRT!")
+            else:
+                st.session_state.srt_content = script_content
+
+            if "srt_content" in st.session_state:
+                # Parse to get segments count
+                segments = engine.parse_srt(st.session_state.srt_content)
+                if segments:
+                    st.write(f"✅ Found **{len(segments)}** segments.")
                     
-                    # Step 2: Parse SRT
-                    segments = engine.parse_srt(srt_content)
-                    if not segments:
-                        st.error("No valid segments found. Please check your format.")
-                    else:
-                        st.success(f"Found {len(segments)} segments!")
-                        
-                        # Step 3: Chunking
-                        chunks = engine.chunk_segments(segments, chunk_size)
-                        st.info(f"Split into {len(chunks)} chunks for parallel processing.")
-                        
-                        # Step 4: Process Workflow
-                        with tempfile.TemporaryDirectory() as tmp_dir:
-                            loop = asyncio.new_event_loop()
-                            asyncio.set_event_loop(loop)
-                            results = loop.run_until_complete(engine.process_workflow(segments, tmp_dir))
+                    # Slider for Number of Chunks (Original Feature)
+                    max_chunks = min(len(segments), 50)
+                    num_chunks = st.slider("Select Number of Chunks to split:", 1, max_chunks, min(len(segments), 5))
+                    
+                    # Calculate segments per chunk
+                    seg_per_chunk = max(1, len(segments) // num_chunks)
+                    st.info(f"Splitting into **{num_chunks}** chunks (~{seg_per_chunk} segments each).")
+
+                    if st.button("🚀 Start Professional Dubbing", use_container_width=True):
+                        with st.spinner("Processing..."):
+                            # Step 3: Chunking
+                            chunks = engine.chunk_segments(segments, seg_per_chunk)
                             
-                            st.session_state.results = results
-                            st.success("✅ Dubbing process completed!")
+                            # Step 4: Process Workflow
+                            with tempfile.TemporaryDirectory() as tmp_dir:
+                                loop = asyncio.new_event_loop()
+                                asyncio.set_event_loop(loop)
+                                results = loop.run_until_complete(engine.process_workflow(segments, tmp_dir))
+                                
+                                st.session_state.results = results
+                                st.success("✅ Dubbing process completed!")
+                else:
+                    st.error("Could not parse segments. Please check your format.")
+        else:
+            st.info("Waiting for input...")
 
     if "results" in st.session_state:
         st.divider()
