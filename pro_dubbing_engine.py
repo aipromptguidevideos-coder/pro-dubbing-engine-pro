@@ -130,9 +130,15 @@ class ProDubbingEngine:
         except:
             return time_str
 
-    def chunk_segments(self, segments: List[DubbingSegment], chunk_size: int) -> List[List[DubbingSegment]]:
-        """Split segments into chunks of specified size"""
-        return [segments[i:i + chunk_size] for i in range(0, len(segments), chunk_size)]
+    def chunk_segments_by_count(self, segments: List[DubbingSegment], num_chunks: int) -> List[List[DubbingSegment]]:
+        """
+        Split segments into exactly num_chunks groups.
+        Ensures each chunk has a roughly equal number of segments.
+        """
+        if not segments: return []
+        num_chunks = min(num_chunks, len(segments))
+        k, m = divmod(len(segments), num_chunks)
+        return [segments[i*k+min(i, m):(i+1)*k+min(i+1, m)] for i in range(num_chunks)]
 
     async def generate_tts_for_segment(self, segment: DubbingSegment, output_dir: str) -> bool:
         """Generate TTS and measure duration"""
@@ -143,7 +149,7 @@ class ProDubbingEngine:
             communicate = edge_tts.Communicate(segment.text, voice)
             await communicate.save(output_path)
             
-            # In real use, use FFmpeg to get exact duration. Here we simulate.
+            # Simulated duration estimation
             word_count = len(segment.text.split())
             segment.tts_duration = max(0.5, word_count / 2.5) 
             segment.tts_audio_path = output_path

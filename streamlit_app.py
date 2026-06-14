@@ -88,8 +88,8 @@ with tab1:
                         final_srt = loop.run_until_complete(engine.text_to_srt_with_ai(script_content))
                         segments = engine.parse_srt(final_srt)
                     
-                    # Step 3: Chunking
-                    chunks = engine.chunk_segments(segments, seg_per_chunk)
+# Step 3: Chunking
+                            chunks = engine.chunk_segments_by_count(segments, num_chunks)
                     
                     # Step 4: Process Workflow
                     with tempfile.TemporaryDirectory() as tmp_dir:
