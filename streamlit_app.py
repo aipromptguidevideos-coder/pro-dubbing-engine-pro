@@ -25,7 +25,7 @@ with st.sidebar:
     
     st.info("Upgrade: Now supports SRT and TXT file uploads!")
 
-# Initialize engine (Default to 'my', will be updated by UI selector)
+# Initialize engine
 engine = ProDubbingEngine(api_key=api_key if api_key else None)
 
 tab1, tab2 = st.tabs(["📤 Input & Process", "📊 Analytics"])
@@ -73,15 +73,24 @@ with tab1:
             help="Provide input first to enable this slider (Max 25 chunks)"
         )
 
-        # Move Output Language here (Under Slider)
-        output_lang = st.selectbox(
+        # Language mapping for full names
+        lang_options = {
+            "Myanmar (Burmese)": "my",
+            "English": "en",
+            "Japanese": "ja",
+            "Korean": "ko",
+            "Thai": "th",
+            "Vietnamese": "vi"
+        }
+        
+        selected_lang_name = st.selectbox(
             "Select Output Language:", 
-            ["my", "en", "ja", "ko", "th", "vi"], 
+            list(lang_options.keys()), 
             index=0,
             help="Choose the language for TTS generation"
         )
-        # Update engine language
-        engine.output_language = output_lang
+        # Update engine language using the mapping
+        engine.output_language = lang_options[selected_lang_name]
 
         if not is_disabled:
             st.write(f"✅ Found **{len(segments)}** segments.")
