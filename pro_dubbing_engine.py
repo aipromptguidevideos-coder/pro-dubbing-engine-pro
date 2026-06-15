@@ -1,7 +1,7 @@
 """
 Professional Dubbing Engine - Upgraded Version
 Handles SRT, TXT to SRT conversion, timestamp-aware chunking, parallel TTS generation, and duration validation.
-Supports multiple voices (Male/Female) and parallel workers.
+Supports multiple voices (Male/Female), parallel workers, and audio merging.
 """
 
 import re
@@ -13,6 +13,8 @@ import json
 import time
 import datetime
 import google.generativeai as genai
+from pydub import AudioSegment
+import io
 
 class DubbingSegment:
     def __init__(self, start: float, end: float, lang: str, text: str, segment_id: int):
@@ -154,3 +156,51 @@ class ProDubbingEngine:
             "successful": len([s for s in all_segments if "error" not in s.status]),
             "segments": [vars(s) for s in all_segments]
         }
+
+    def merge_audio_files(self, segment_list: List[DubbingSegment], output_path: str) -> bool:
+        """Merge all generated audio files into a single audio file"""
+        try:
+            # Sort segments by segment_id to ensure correct order
+            sorted_segments = sorted(segment_list, key=lambda x: x.segment_id)
+            
+            # Filter only segments with valid audio paths
+            valid_segments = [s for s in sorted_segments if s.tts_audio_path and os.path.exists(s.tts_audio_path)]
+            
+            if not valid_segments:
+                return False
+            
+            # Load and concatenate audio files
+            combined = AudioSegment.empty()
+            for segment in valid_segments:
+                audio = AudioSegment.from_mp3(segment.tts_audio_path)
+                combined += audio
+            
+            # Export to MP3
+            combined.export(output_path, format="mp3", bitrate="192k")
+            return True
+        except Exception as e:
+            print(f"Error merging audio files: {e}")
+            return False
+
+    def generate_srt_content(self, segment_list: List[DubbingSegment]) -> str:
+        """Generate SRT content from segments"""
+        srt_lines = []
+        sorted_segments = sorted(segment_list, key=lambda x: x.segment_id)
+        
+        for idx, segment in enumerate(sorted_segments, 1):
+            start_time = self._seconds_to_srt_time(segment.start)
+            end_time = self._seconds_to_srt_time(segment.end)
+            srt_lines.append(f"{idx}")
+            srt_lines.append(f"{start_time} --> {end_time}")
+            srt_lines.append(segment.text)
+            srt_lines.append("")
+        
+        return "\n".join(srt_lines)
+
+    def _seconds_to_srt_time(self, seconds: float) -> str:
+        """Convert seconds to SRT time format (HH:MM:SS,mmm)"""
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        millis = int((seconds % 1) * 1000)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"

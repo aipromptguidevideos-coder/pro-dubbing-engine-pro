@@ -23,7 +23,7 @@ with st.sidebar:
     else:
         api_key = st.text_input("Gemini API Key (Optional)", type="password", help="Add GEMINI_API_KEY to Streamlit Secrets for permanent access")
     
-    st.info("Upgrade: Now supports Male/Female voice selection!")
+    st.info("Upgrade: Now supports Male/Female voice selection and separate audio/SRT downloads!")
 
 # Initialize engine
 engine = ProDubbingEngine(api_key=api_key if api_key else None)
@@ -92,6 +92,15 @@ with tab1:
             selected_gender = st.selectbox("Select Voice Gender:", ["Male", "Female"], index=0)
             engine.voice_gender = selected_gender
 
+        # Output Format Selection
+        st.divider()
+        st.subheader("3. Select Output Format")
+        output_format = st.radio(
+            "Choose what to download:",
+            ["🎵 Audio File Only", "📄 SRT + Audio (Separate Files)"],
+            horizontal=True
+        )
+
         if not is_disabled:
             st.write(f"✅ Found **{len(segments)}** segments.")
             st.write(f"⚡ Mode: **{num_chunks} Workers** | Voice: **{selected_gender}**")
@@ -113,6 +122,9 @@ with tab1:
                         results = loop.run_until_complete(engine.process_workflow_parallel(chunks, tmp_dir))
                         
                         st.session_state.results = results
+                        st.session_state.final_srt = final_srt
+                        st.session_state.segments = segments
+                        st.session_state.tmp_dir = tmp_dir
                         st.success("✅ Dubbing process completed!")
         else:
             st.warning("⚠️ Please provide input to enable dubbing.")
@@ -125,11 +137,62 @@ with tab1:
         with st.expander("View Detailed Segment Status"):
             st.table(res['segments'])
 
+        # Download Section
+        st.divider()
+        st.subheader("📥 Download Results")
+        
+        segments_list = st.session_state.segments
+        
+        if output_format == "🎵 Audio File Only":
+            st.info("💾 Merging audio files into a single file...")
+            with tempfile.TemporaryDirectory() as download_tmp:
+                merged_audio_path = os.path.join(download_tmp, "dubbed_audio.mp3")
+                if engine.merge_audio_files(segments_list, merged_audio_path):
+                    with open(merged_audio_path, "rb") as f:
+                        audio_data = f.read()
+                    st.download_button(
+                        label="⬇️ Download Audio (MP3)",
+                        data=audio_data,
+                        file_name="dubbed_audio.mp3",
+                        mime="audio/mpeg"
+                    )
+                else:
+                    st.error("❌ Failed to merge audio files.")
+        
+        elif output_format == "📄 SRT + Audio (Separate Files)":
+            col_srt, col_audio = st.columns(2)
+            
+            with col_srt:
+                st.write("**📄 Subtitle File**")
+                srt_content = engine.generate_srt_content(segments_list)
+                st.download_button(
+                    label="⬇️ Download SRT",
+                    data=srt_content,
+                    file_name="dubbed_subtitles.srt",
+                    mime="text/plain"
+                )
+            
+            with col_audio:
+                st.write("**🎵 Audio File**")
+                with tempfile.TemporaryDirectory() as download_tmp:
+                    merged_audio_path = os.path.join(download_tmp, "dubbed_audio.mp3")
+                    if engine.merge_audio_files(segments_list, merged_audio_path):
+                        with open(merged_audio_path, "rb") as f:
+                            audio_data = f.read()
+                        st.download_button(
+                            label="⬇️ Download Audio (MP3)",
+                            data=audio_data,
+                            file_name="dubbed_audio.mp3",
+                            mime="audio/mpeg"
+                        )
+                    else:
+                        st.error("❌ Failed to generate audio file.")
+
 with tab2:
     st.subheader("📈 Technical Analytics")
     if "results" in st.session_state:
         res = st.session_state.results
         st.write("**Segment Timeline**")
         for s in res['segments']:
-            status_color = "🟢" if s['status'] == 'valid' else "🟡" if 'adjusted' in s['status'] else "🔴"
+            status_color = "🟢" if s['status'] == 'tts_generated' else "🟡" if 'adjusted' in s['status'] else "🔴"
             st.text(f"{status_color} [{s['start']:.2f}s - {s['end']:.2f}s] | {s['text'][:50]}...")
