@@ -23,11 +23,10 @@ with st.sidebar:
     else:
         api_key = st.text_input("Gemini API Key (Optional)", type="password", help="Add GEMINI_API_KEY to Streamlit Secrets for permanent access")
     
-    output_lang = st.selectbox("Output Language", ["my", "en", "ja", "ko", "th", "vi"], index=0)
     st.info("Upgrade: Now supports SRT and TXT file uploads!")
 
-# Initialize engine
-engine = ProDubbingEngine(api_key=api_key if api_key else None, output_language=output_lang)
+# Initialize engine (Default to 'my', will be updated by UI selector)
+engine = ProDubbingEngine(api_key=api_key if api_key else None)
 
 tab1, tab2 = st.tabs(["📤 Input & Process", "📊 Analytics"])
 
@@ -62,7 +61,6 @@ with tab1:
 
         # Slider: Always visible, but disabled if no segments
         is_disabled = len(segments) == 0
-        # Limit max chunks to 25 as requested
         max_chunks_limit = 25
         max_val = min(len(segments), max_chunks_limit) if not is_disabled else max_chunks_limit
         
@@ -74,6 +72,16 @@ with tab1:
             disabled=is_disabled,
             help="Provide input first to enable this slider (Max 25 chunks)"
         )
+
+        # Move Output Language here (Under Slider)
+        output_lang = st.selectbox(
+            "Select Output Language:", 
+            ["my", "en", "ja", "ko", "th", "vi"], 
+            index=0,
+            help="Choose the language for TTS generation"
+        )
+        # Update engine language
+        engine.output_language = output_lang
 
         if not is_disabled:
             st.write(f"✅ Found **{len(segments)}** segments.")
