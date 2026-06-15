@@ -61,16 +61,17 @@ with tab1:
 
         # Slider: Always visible, but disabled if no segments
         is_disabled = len(segments) == 0
-        max_chunks_limit = 25
+        # Limit max chunks to 10 as requested
+        max_chunks_limit = 10
         max_val = min(len(segments), max_chunks_limit) if not is_disabled else max_chunks_limit
         
         num_chunks = st.slider(
             "Select Number of Chunks to split:", 
             min_value=1, 
-            max_value=max_val, 
+            max_value=max_val if max_val >= 1 else 10, 
             value=min(len(segments), 5) if not is_disabled else 5,
             disabled=is_disabled,
-            help="Provide input first to enable this slider (Max 25 chunks)"
+            help="Provide input first to enable this slider (Max 10 chunks)"
         )
 
         # Language mapping for full names
