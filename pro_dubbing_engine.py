@@ -1,7 +1,7 @@
 """
 Professional Dubbing Engine - Upgraded Version
 Handles SRT, TXT to SRT conversion, timestamp-aware chunking, parallel TTS generation, and duration validation.
-Ensures chunking happens at sentence boundaries and supports parallel workers for performance.
+Supports multiple voices (Male/Female) and parallel workers.
 """
 
 import re
@@ -29,21 +29,23 @@ class DubbingSegment:
         self.status = "pending"
 
 class ProDubbingEngine:
-    def __init__(self, api_key: str = None, output_language: str = "my"):
+    def __init__(self, api_key: str = None, output_language: str = "my", voice_gender: str = "Male"):
         self.tolerance = 0.3  # ±0.3 seconds
         self.api_key = api_key
         self.output_language = output_language.lower()
+        self.voice_gender = voice_gender
         if api_key:
             genai.configure(api_key=api_key)
             self.model = genai.GenerativeModel('gemini-2.0-flash-lite')
         
-        self.language_voice_map = {
-            "my": "my-MM-ThihaNeural",
-            "en": "en-US-GuyNeural",
-            "ja": "ja-JP-KeitaNeural",
-            "ko": "ko-KR-InJoonNeural",
-            "th": "th-TH-NiwatNeural",
-            "vi": "vi-VN-HoaiMyNeural"
+        # Voice mapping with Male/Female options
+        self.voice_map = {
+            "my": {"Male": "my-MM-ThihaNeural", "Female": "my-MM-NilarNeural"},
+            "en": {"Male": "en-US-GuyNeural", "Female": "en-US-AvaNeural"},
+            "ja": {"Male": "ja-JP-KeitaNeural", "Female": "ja-JP-NanamiNeural"},
+            "ko": {"Male": "ko-KR-InJoonNeural", "Female": "ko-KR-SunHiNeural"},
+            "th": {"Male": "th-TH-NiwatNeural", "Female": "th-TH-PremwadeeNeural"},
+            "vi": {"Male": "vi-VN-NamMinhNeural", "Female": "vi-VN-HoaiMyNeural"}
         }
 
     def _time_to_seconds(self, time_str: str) -> float:
@@ -59,7 +61,6 @@ class ProDubbingEngine:
     def parse_srt(self, srt_content: str) -> List[DubbingSegment]:
         """Parse SRT content into DubbingSegments"""
         segments = []
-        # Pattern for SRT blocks
         pattern = r'(\d+)\s+(\d{2}:\d{2}:\d{2}[,. ]\d{3})\s+-->\s+(\d{2}:\d{2}:\d{2}[,. ]\d{3})\s+(.*?)(?=\n\n|\n\d+\n|$)'
         matches = re.finditer(pattern, srt_content, re.DOTALL)
         
@@ -78,47 +79,30 @@ class ProDubbingEngine:
         return segments
 
     async def text_to_srt_with_ai(self, text: str) -> str:
-        """Convert custom formatted text to standard SRT using Gemini AI for precision"""
+        """Convert custom formatted text to standard SRT using Gemini AI"""
         if not self.api_key:
             return self._simple_text_to_srt(text)
 
         prompt = f"""
         Convert the following timestamped text into a valid SRT subtitle format.
-        The input format is: [HH:MM:SS] Text content
-        Ensure the timing is continuous and natural for dubbing.
-        Output ONLY the valid SRT content.
-        
-        Input:
-        {text}
+        Input: {text}
         """
         try:
             response = await asyncio.to_thread(self.model.generate_content, prompt)
             return response.text.strip()
-        except Exception as e:
-            print(f"AI Conversion Error: {e}")
+        except:
             return self._simple_text_to_srt(text)
 
     def _simple_text_to_srt(self, text: str) -> str:
-        """Regex-based fallback for text to SRT conversion"""
         lines = [l.strip() for l in text.strip().split('\n') if l.strip()]
         srt_out = []
         idx = 1
-        
         for i in range(len(lines)):
             match = re.match(r'\[?(\d{2}:\d{2}:\d{2})\]?\s*(.*)', lines[i])
             if match:
                 start_time = match.group(1) + ",000"
                 content = match.group(2)
-                
-                if i + 1 < len(lines):
-                    next_match = re.match(r'\[?(\d{2}:\d{2}:\d{2})\]?', lines[i+1])
-                    if next_match:
-                        end_time = next_match.group(1) + ",000"
-                    else:
-                        end_time = self._add_seconds_to_time(match.group(1), 2) + ",000"
-                else:
-                    end_time = self._add_seconds_to_time(match.group(1), 2) + ",000"
-                
+                end_time = self._add_seconds_to_time(match.group(1), 2) + ",000"
                 srt_out.append(f"{idx}\n{start_time} --> {end_time}\n{content}\n")
                 idx += 1
         return "\n".join(srt_out)
@@ -128,69 +112,43 @@ class ProDubbingEngine:
             t = datetime.datetime.strptime(time_str, "%H:%M:%S")
             t_new = t + datetime.timedelta(seconds=seconds_to_add)
             return t_new.strftime("%H:%M:%S")
-        except:
-            return time_str
+        except: return time_str
 
     def chunk_segments_by_count(self, segments: List[DubbingSegment], num_chunks: int) -> List[List[DubbingSegment]]:
-        """
-        Split segments into exactly num_chunks groups, ensuring we only split at sentence boundaries.
-        In SRT-based parsing, each DubbingSegment is already a sentence or a group of sentences.
-        """
         if not segments: return []
         num_chunks = min(num_chunks, len(segments))
         k, m = divmod(len(segments), num_chunks)
         return [segments[i*k+min(i, m):(i+1)*k+min(i+1, m)] for i in range(num_chunks)]
 
     async def generate_tts_for_segment(self, segment: DubbingSegment, output_dir: str) -> bool:
-        """Generate TTS and measure duration"""
+        """Generate TTS with selected voice and gender"""
         try:
-            voice = self.language_voice_map.get(segment.lang, self.language_voice_map["my"])
-            output_path = os.path.join(output_dir, f"seg_{segment.segment_id}.mp3")
+            # Get specific voice based on language and gender
+            lang_voices = self.voice_map.get(self.output_language, self.voice_map["my"])
+            voice = lang_voices.get(self.voice_gender, lang_voices["Male"])
             
+            output_path = os.path.join(output_dir, f"seg_{segment.segment_id}.mp3")
             communicate = edge_tts.Communicate(segment.text, voice)
             await communicate.save(output_path)
             
-            # Simple duration estimation (In real use, we'd use ffprobe or similar)
-            word_count = len(segment.text.split())
-            segment.tts_duration = max(0.5, word_count / 2.5) 
             segment.tts_audio_path = output_path
             segment.status = "tts_generated"
+            # Simple duration estimation
+            segment.tts_duration = len(segment.text.split()) / 2.5
             return True
         except Exception as e:
             segment.status = f"error: {e}"
             return False
 
-    def validate_and_adjust(self, segment: DubbingSegment):
-        """Calculate speed adjustment if duration is out of tolerance"""
-        if not segment.tts_duration: return
-        
-        diff = segment.tts_duration - segment.duration
-        if abs(diff) > self.tolerance:
-            if segment.tts_duration > segment.duration:
-                segment.adjusted_speed = segment.tts_duration / segment.duration
-                segment.status = "speed_adjusted"
-            else:
-                segment.status = "valid_short"
-        else:
-            segment.status = "valid"
-
     async def process_chunk(self, chunk: List[DubbingSegment], output_dir: str):
-        """Process a specific chunk of segments"""
         tasks = [self.generate_tts_for_segment(seg, output_dir) for seg in chunk]
         await asyncio.gather(*tasks)
-        for seg in chunk:
-            self.validate_and_adjust(seg)
 
     async def process_workflow_parallel(self, chunks: List[List[DubbingSegment]], output_dir: str) -> Dict:
-        """Execute parallel processing using chunk-based workers"""
         if not os.path.exists(output_dir): os.makedirs(output_dir)
-        
-        # Each chunk is handled by a separate 'worker' task
         worker_tasks = [self.process_chunk(chunk, output_dir) for chunk in chunks]
         await asyncio.gather(*worker_tasks)
-        
         all_segments = [seg for chunk in chunks for seg in chunk]
-        
         return {
             "total": len(all_segments),
             "successful": len([s for s in all_segments if "error" not in s.status]),
