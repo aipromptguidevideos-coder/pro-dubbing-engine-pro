@@ -1,7 +1,7 @@
 """
 Professional Dubbing Engine - Upgraded Version
 Handles SRT, TXT to SRT conversion, timestamp-aware chunking, parallel TTS generation, and duration validation.
-Ensures chunking happens at sentence boundaries.
+Ensures chunking happens at sentence boundaries and supports parallel workers for performance.
 """
 
 import re
@@ -134,8 +134,7 @@ class ProDubbingEngine:
     def chunk_segments_by_count(self, segments: List[DubbingSegment], num_chunks: int) -> List[List[DubbingSegment]]:
         """
         Split segments into exactly num_chunks groups, ensuring we only split at sentence boundaries.
-        In SRT-based parsing, each DubbingSegment is already a sentence or a group of sentences, 
-        so we just need to distribute these segments across chunks.
+        In SRT-based parsing, each DubbingSegment is already a sentence or a group of sentences.
         """
         if not segments: return []
         num_chunks = min(num_chunks, len(segments))
@@ -151,7 +150,7 @@ class ProDubbingEngine:
             communicate = edge_tts.Communicate(segment.text, voice)
             await communicate.save(output_path)
             
-            # Simulated duration estimation
+            # Simple duration estimation (In real use, we'd use ffprobe or similar)
             word_count = len(segment.text.split())
             segment.tts_duration = max(0.5, word_count / 2.5) 
             segment.tts_audio_path = output_path
@@ -175,18 +174,25 @@ class ProDubbingEngine:
         else:
             segment.status = "valid"
 
-    async def process_workflow(self, segments: List[DubbingSegment], output_dir: str) -> Dict:
-        """Execute parallel generation and validation"""
+    async def process_chunk(self, chunk: List[DubbingSegment], output_dir: str):
+        """Process a specific chunk of segments"""
+        tasks = [self.generate_tts_for_segment(seg, output_dir) for seg in chunk]
+        await asyncio.gather(*tasks)
+        for seg in chunk:
+            self.validate_and_adjust(seg)
+
+    async def process_workflow_parallel(self, chunks: List[List[DubbingSegment]], output_dir: str) -> Dict:
+        """Execute parallel processing using chunk-based workers"""
         if not os.path.exists(output_dir): os.makedirs(output_dir)
         
-        tasks = [self.generate_tts_for_segment(seg, output_dir) for seg in segments]
-        await asyncio.gather(*tasks)
+        # Each chunk is handled by a separate 'worker' task
+        worker_tasks = [self.process_chunk(chunk, output_dir) for chunk in chunks]
+        await asyncio.gather(*worker_tasks)
         
-        for seg in segments:
-            self.validate_and_adjust(seg)
-            
+        all_segments = [seg for chunk in chunks for seg in chunk]
+        
         return {
-            "total": len(segments),
-            "successful": len([s for s in segments if "error" not in s.status]),
-            "segments": [vars(s) for s in segments]
+            "total": len(all_segments),
+            "successful": len([s for s in all_segments if "error" not in s.status]),
+            "segments": [vars(s) for s in all_segments]
         }

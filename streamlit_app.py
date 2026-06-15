@@ -23,7 +23,7 @@ with st.sidebar:
     else:
         api_key = st.text_input("Gemini API Key (Optional)", type="password", help="Add GEMINI_API_KEY to Streamlit Secrets for permanent access")
     
-    st.info("Upgrade: Now supports SRT and TXT file uploads!")
+    st.info("Upgrade: Now supports parallel TTS workers based on chunks!")
 
 # Initialize engine
 engine = ProDubbingEngine(api_key=api_key if api_key else None)
@@ -61,17 +61,16 @@ with tab1:
 
         # Slider: Always visible, but disabled if no segments
         is_disabled = len(segments) == 0
-        # Limit max chunks to 10 as requested
         max_chunks_limit = 10
         max_val = min(len(segments), max_chunks_limit) if not is_disabled else max_chunks_limit
         
         num_chunks = st.slider(
-            "Select Number of Chunks to split:", 
+            "Select Number of Chunks (Parallel Workers):", 
             min_value=1, 
             max_value=max_val if max_val >= 1 else 10, 
             value=min(len(segments), 5) if not is_disabled else 5,
             disabled=is_disabled,
-            help="Provide input first to enable this slider (Max 10 chunks)"
+            help="This determines how many parallel TTS workers will run (Max 10)"
         )
 
         # Language mapping for full names
@@ -87,17 +86,16 @@ with tab1:
         selected_lang_name = st.selectbox(
             "Select Output Language:", 
             list(lang_options.keys()), 
-            index=0,
-            help="Choose the language for TTS generation"
+            index=0
         )
-        # Update engine language using the mapping
         engine.output_language = lang_options[selected_lang_name]
 
         if not is_disabled:
             st.write(f"✅ Found **{len(segments)}** segments.")
+            st.write(f"⚡ Parallel Mode: **{num_chunks} Workers** will process the script.")
             
-            if st.button("🚀 Start Professional Dubbing", use_container_width=True):
-                with st.spinner("Processing..."):
+            if st.button("🚀 Start Parallel Professional Dubbing", use_container_width=True):
+                with st.spinner(f"Processing with {num_chunks} parallel workers..."):
                     # Final check for conversion
                     final_srt = script_content
                     if "[00:" in script_content and "-->" not in script_content:
@@ -107,19 +105,19 @@ with tab1:
                     
                     segments = engine.parse_srt(final_srt)
                     
-                    # Step 3: Chunking (Sentence-Aware)
+                    # Chunking
                     chunks = engine.chunk_segments_by_count(segments, num_chunks)
                     
-                    # Step 4: Process Workflow
+                    # Process Workflow in Parallel
                     with tempfile.TemporaryDirectory() as tmp_dir:
                         loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(loop)
-                        results = loop.run_until_complete(engine.process_workflow(segments, tmp_dir))
+                        results = loop.run_until_complete(engine.process_workflow_parallel(chunks, tmp_dir))
                         
                         st.session_state.results = results
-                        st.success("✅ Dubbing process completed!")
+                        st.success(f"✅ Completed! Processed by {num_chunks} parallel workers.")
         else:
-            st.warning("⚠️ Please provide input (Text or File) to enable dubbing and chunking.")
+            st.warning("⚠️ Please provide input to enable parallel dubbing.")
 
     if "results" in st.session_state:
         st.divider()
@@ -134,11 +132,9 @@ with tab2:
     st.subheader("📈 Technical Analytics")
     if "results" in st.session_state:
         res = st.session_state.results
-        # Simple stats
         avg_speed = sum([s['adjusted_speed'] for s in res['segments']]) / len(res['segments'])
         st.metric("Average Speed Adjustment", f"{avg_speed:.2f}x")
         
-        # Timeline view
         st.write("**Segment Timeline**")
         for s in res['segments']:
             status_color = "🟢" if s['status'] == 'valid' else "🟡" if 'adjusted' in s['status'] else "🔴"
